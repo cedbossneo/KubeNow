@@ -16,6 +16,13 @@ variable vpc_id {default = ""}
 variable subnet_id {default = ""}
 variable additional_sec_group_ids {type="list" default = []}
 
+# Cloudflare settings
+variable master_is_edge { default="true" }
+variable use_cloudflare { default="true" }
+variable cloudflare_email { default="nothing" }
+variable cloudflare_token { default="nothing" }
+variable cloudflare_domain { default="" }
+
 # Master settings
 variable master_count { default = 1 }
 variable master_instance_type {}
@@ -101,7 +108,7 @@ module "master" {
   # Bootstrap settings
   bootstrap_file = "bootstrap/master.sh"
   kubeadm_token = "${var.kubeadm_token}"
-  node_labels = [""]
+  node_labels = "${split(",", var.master_is_edge == "true" ? "role=edge" : "")}"
   node_taints = [""]
   master_ip = ""
 }
@@ -154,6 +161,27 @@ module "edge" {
   node_labels = ["role=edge"]
   node_taints = [""]
   master_ip = "${element(module.master.local_ip_v4, 0)}"
+}
+
+#
+# The code below should be identical for all cloud providers
+#
+
+# set cloudflare record (optional): only if var.cloudflare_domain != "" 
+# currentlty this is always including master as edge - but instead should probably be called twice
+# once for master (if role=edge) and once for edges
+module "cloudflare" {
+  # count values can not be dynamically computed, that's why using
+  # var.edge_count and not length(iplist)
+  record_count = "${var.use_cloudflare != true ? 0 : var.master_is_edge == true ? var.edge_count + var.master_count : var.edge_count}"
+  source = "../common/cloudflare"
+  cloudflare_email = "${var.cloudflare_email}"
+  cloudflare_token = "${var.cloudflare_token}"
+  cloudflare_domain = "${var.cloudflare_domain}"
+  record_text = "*.${var.cluster_prefix}"
+  # concat lists (record_count is limiting master_ip:s from being added to cloudflare if they are not supposed to)
+  # terraform interpolation is limited and can not return list in conditionals
+  iplist = "${concat(module.edge.public_ip, module.master.public_ip)}"
 }
 
 # Generate Ansible inventory (identical for each cloud provider)
