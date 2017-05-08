@@ -18,7 +18,7 @@ variable additional_sec_group_ids {type="list" default = []}
 
 # Cloudflare settings
 variable master_is_edge { default="true" }
-variable use_cloudflare { default="true" }
+variable use_cloudflare { default="false" }
 variable cloudflare_email { default="nothing" }
 variable cloudflare_token { default="nothing" }
 variable cloudflare_domain { default="" }
@@ -222,6 +222,10 @@ resource "null_resource" "generate-inventory" {
   provisioner "local-exec" {
     # generates aws hostnames (e.g. ip-000-111-222-333) from ip-numbers
     command =  "echo 'edge_names=\"${replace(join(" ",formatlist("ip-%s", module.edge.local_ip_v4)),".","-")}\"' >> inventory"
+  }
+  # If cloudflare domain is set, output that domain, otherwise output a nip.io domain (with the first edge ip)
+  provisioner "local-exec" {
+    command =  "echo \"domain=${ var.use_cloudflare == true ? format("%s.%s", var.cluster_prefix, var.cloudflare_domain) : format("%s.nip.io", element(concat(module.edge.public_ip, module.master.public_ip), 0))}\" >> inventory"
   }
 
 }
