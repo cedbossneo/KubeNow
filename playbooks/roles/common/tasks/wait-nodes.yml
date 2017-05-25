@@ -4,9 +4,9 @@
     host={{ ansible_ssh_host | default(inventory_hostname) }}
     port={{ ansible_port | default(22) }}
     search_regex=OpenSSH
-    delay=2
+    delay=0
     connect_timeout=1
-    timeout=400
+    timeout=360
 
 - name: "render node count"
   local_action: >
