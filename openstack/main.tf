@@ -11,6 +11,7 @@ variable kubeadm_token {}
 variable master_count { default = 1 }
 variable master_flavor {}
 variable master_flavor_id { default = ""}
+variable master_as_edge { default="true" }
 
 # Nodes settings
 variable node_count {}
@@ -21,6 +22,12 @@ variable node_flavor_id { default = ""}
 variable edge_count {}
 variable edge_flavor {}
 variable edge_flavor_id { default = ""}
+
+# Cloudflare settings
+variable use_cloudflare { default="false" }
+variable cloudflare_email { default="nothing" }
+variable cloudflare_token { default="nothing" }
+variable cloudflare_domain { default="" }
 
 # Upload SSH key to OpenStack
 module "keypair" {
@@ -57,7 +64,7 @@ module "master" {
   # Bootstrap settings
   bootstrap_file = "bootstrap/master.sh"
   kubeadm_token = "${var.kubeadm_token}"
-  node_labels = [""]
+  node_labels = "${split(",", var.master_as_edge == "true" ? "role=edge" : "")}"
   node_taints = [""]
   master_ip = ""
 }
@@ -112,40 +119,34 @@ module "edge" {
   master_ip = "${element(module.master.local_ip_v4, 0)}"
 }
 
-# Generate Ansible inventory (identical for each cloud provider)
-resource "null_resource" "generate-inventory" {
+# The code below (from here to end) should be identical for all cloud providers
 
-  # Changes to any node IP trigger inventory rewrite
-  triggers {
-    master_ips = "${join(",", module.master.local_ip_v4)}"
-    node_ips = "${join(",", module.node.local_ip_v4)}"
-    edge_ips = "${join(",", module.edge.local_ip_v4)}"
-  }
-
-  # Write master
-  provisioner "local-exec" {
-    command =  "echo \"[master]\" > inventory"
-  }
-  # output the lists formated
-  provisioner "local-exec" {
-    command =  "echo \"${join("\n",formatlist("%s ansible_ssh_host=%s ansible_ssh_user=ubuntu", module.master.hostnames, module.master.public_ip))}\" >> inventory"
-  }
-
-  # Write edges
-  provisioner "local-exec" {
-    command =  "echo \"[edge]\" >> inventory"
-  }
-  # output the lists formated
-  provisioner "local-exec" {
-    command =  "echo \"${join("\n",formatlist("%s ansible_ssh_host=%s ansible_ssh_user=ubuntu", module.edge.hostnames, module.edge.public_ip))}\" >> inventory"
-  }
-
-  # Write other variables
-  provisioner "local-exec" {
-    command =  "echo \"[master:vars]\" >> inventory"
-  }
-  provisioner "local-exec" {
-    command =  "echo \"nodes_count=${1 + var.edge_count + var.node_count} \" >> inventory"
-  }
-
+# set cloudflare record (optional)
+module "cloudflare" {
+  # count values can not be dynamically computed, that's why we are using var.edge_count and not length(iplist)
+  record_count = "${var.use_cloudflare != true ? 0 : var.master_as_edge == true ? var.edge_count + var.master_count : var.edge_count}"
+  source = "../common/cloudflare"
+  cloudflare_email = "${var.cloudflare_email}"
+  cloudflare_token = "${var.cloudflare_token}"
+  cloudflare_domain = "${var.cloudflare_domain}"
+  record_text = "*.${var.cluster_prefix}"
+  # concat lists (record_count is limiting master_ip:s from being added to cloudflare if var.master_as_edge=false)
+  # terraform interpolation is limited and can not return list in conditionals
+  iplist = "${concat(module.edge.public_ip, module.master.public_ip)}"
 }
+
+# Generate Ansible inventory (identical for each cloud provider)
+module "generate-inventory" {
+  source = "../common/inventory"
+  master_hostnames = "${module.master.hostnames}"
+  master_public_ip = "${module.master.public_ip}"
+  edge_hostnames = "${module.edge.hostnames}"
+  edge_public_ip = "${module.edge.public_ip}"
+  master_as_edge = "${var.master_as_edge}"
+  edge_count = "${var.edge_count}"
+  node_count = "${var.node_count}"
+  cluster_prefix = "${var.cluster_prefix}"
+  use_cloudflare = "${var.use_cloudflare}"
+  cloudflare_domain = "${var.cloudflare_domain}"
+}
+
