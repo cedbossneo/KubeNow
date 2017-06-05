@@ -27,7 +27,7 @@
 
     - name: "set url fact"
       set_fact:
-        image_url: "https://httpd.pharmb.io/kubenow-img/{{ image_name }}.qcow2"
+        image_url: "https://s3.amazonaws.com/kubenow-us-east-1/{{ image_name }}.qcow2"
     
     - name: check if image {{ image_name }} is present in openstack teenancy
       shell: >
